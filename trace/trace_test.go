@@ -28,6 +28,7 @@ import (
 var (
 	tid               = TraceID{1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 4, 8, 16, 32, 64, 128}
 	sid               = SpanID{1, 2, 4, 8, 16, 32, 64, 128}
+	customerSpanID    = SpanID{10, 2, 4, 8, 16, 32, 64, 128}
 	testTracestate, _ = tracestate.New(nil, tracestate.Entry{Key: "foo", Value: "bar"})
 )
 
@@ -241,6 +242,7 @@ func startSpan(o StartOptions) *Span {
 		},
 		WithSampler(o.Sampler),
 		WithSpanKind(o.SpanKind),
+		WithCustomID(o.CustomerID),
 	)
 	return span
 }
@@ -275,7 +277,9 @@ func endSpan(span *Span) (*SpanData, error) {
 	if got.SpanContext.SpanID == (SpanID{}) {
 		return nil, fmt.Errorf("exporting span: expected nonzero SpanID")
 	}
-	got.SpanContext.SpanID = SpanID{}
+	if got.SpanContext.SpanID != (customerSpanID) { // we need keep customerSpanID for check
+		got.SpanContext.SpanID = SpanID{}
+	}
 	if !checkTime(&got.StartTime) {
 		return nil, fmt.Errorf("exporting span: expected nonzero StartTime")
 	}
@@ -346,6 +350,58 @@ func TestSpanKind(t *testing.T) {
 				ParentSpanID:    sid,
 				Name:            "span0",
 				SpanKind:        SpanKindServer,
+				HasRemoteParent: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		span := startSpan(tt.startOptions)
+		got, err := endSpan(span)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("exporting span: got %#v want %#v", got, tt.want)
+		}
+	}
+}
+
+func TestCustomerID(t *testing.T) {
+	tests := []struct {
+		name         string
+		startOptions StartOptions
+		want         *SpanData
+	}{
+		{
+			name:         "zero StartOptions",
+			startOptions: StartOptions{},
+			want: &SpanData{
+				SpanContext: SpanContext{
+					TraceID:      tid,
+					SpanID:       SpanID{},
+					TraceOptions: 0x1,
+				},
+				ParentSpanID:    sid,
+				Name:            "span0",
+				SpanKind:        SpanKindUnspecified,
+				HasRemoteParent: true,
+			},
+		},
+		{
+			name: "client customerSpanID",
+			startOptions: StartOptions{
+				CustomerID: customerSpanID,
+			},
+			want: &SpanData{
+				SpanContext: SpanContext{
+					TraceID:      tid,
+					SpanID:       customerSpanID,
+					TraceOptions: 0x1,
+				},
+				ParentSpanID:    sid,
+				Name:            "span0",
+				SpanKind:        SpanKindUnspecified,
 				HasRemoteParent: true,
 			},
 		},
